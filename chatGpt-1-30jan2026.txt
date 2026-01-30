@@ -1,0 +1,38 @@
+This error happens because you now have **two `Task` types**:
+
+* one **imported**: `import { Task } from "@/api/tasks"`
+* one **declared locally** in the same file: `type Task = { ... }`
+
+TypeScript says: ❌ conflict.
+
+---
+
+# ✅ Fix (Recommended): Keep Task type only in API file and import it
+
+### ✅ Step 1: Remove local Task type from page
+
+In your page file DELETE this:
+
+```ts
+type Task = {
+  id: string;
+  title: string;
+  priority: string;
+  status: string;
+};
+```
+
+### ✅ Step 2: Import Task from API
+
+At top of file:
+
+```ts
+import type { Task } from "@/api/tasks";
+import { TasksAPI } from "@/api/tasks";
+```
+
+Now no conflict.
+
+---
+
+# Alternative Fix:
