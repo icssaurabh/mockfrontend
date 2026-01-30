@@ -3,26 +3,20 @@
     {
       "id": "1",
       "title": "server downtime",
-      "priority": "Low",
-      "status": "Resolved"
+      "priority": "Medium",
+      "status": "open"
     },
     {
       "id": "2",
       "title": "server busy",
-      "priority": "Medium",
+      "priority": "Low",
       "status": "Resolved"
     },
     {
       "id": "3",
       "title": "server not connected",
-      "priority": "Medium",
-      "status": "open"
-    },
-    {
-      "title": "wokring",
       "priority": "Low",
-      "status": "Resolved",
-      "id": "4"
+      "status": "open"
     }
   ]
 }

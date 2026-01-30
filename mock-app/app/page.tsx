@@ -2,17 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Save, RotateCcw, Trash2, Plus } from "lucide-react";
+import { TasksAPI, Task } from "@/api/tasks";
+import { ApiError } from "@/api/http";
 
-type Task = {
-  id: string;
-  title: string;
-  priority: string;
-  status: string;
-};
 
 type ToastType = "success" | "error" | "info";
 
-const API = "http://localhost:3001/tasks";
+
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -40,30 +36,27 @@ export default function TasksPage() {
   const [priorityFilter, setPriorityFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
 
-  const fetchTasks = async () => {
-    try {
-      setLoading(true);
-      setErr("");
+const fetchTasks = async () => {
+  try {
+    setLoading(true);
+    setErr("");
 
-      const res = await fetch(API, { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await TasksAPI.list();
+    setTasks(data);
 
-      const data: Task[] = await res.json();
-      setTasks(data);
+    const d: Record<string, Pick<Task, "priority" | "status">> = {};
+    data.forEach((t) => (d[t.id] = { priority: t.priority, status: t.status }));
+    setDrafts(d);
+  } catch (e: unknown) {
+    const msg =
+      e instanceof ApiError ? `${e.message} | ${e.bodyText}` : e instanceof Error ? e.message : "Failed to fetch";
+    setErr(msg);
+    showToast("error", msg);
+  } finally {
+    setLoading(false);
+  }
+};
 
-      const d: Record<string, Pick<Task, "priority" | "status">> = {};
-      data.forEach((t) => {
-        d[t.id] = { priority: t.priority, status: t.status };
-      });
-      setDrafts(d);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to fetch";
-      setErr(msg);
-      showToast("error", msg);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
     fetchTasks();
@@ -76,32 +69,29 @@ export default function TasksPage() {
       return;
     }
 
-    try {
-      setErr("");
-      const res = await fetch(API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newTitle,
-          priority: newPriority,
-          status: newStatus,
-        }),
-      });
+   try {
+  setErr("");
 
-      if (!res.ok) throw new Error(`POST failed: HTTP ${res.status}`);
+  await TasksAPI.create({
+    title: newTitle,
+    priority: newPriority,
+    status: newStatus,
+  });
 
-      setNewTitle("");
-      setNewPriority("Low");
-      setNewStatus("open");
+  setNewTitle("");
+  setNewPriority("Low");
+  setNewStatus("open");
+  setIsAddOpen(false);
 
-      setIsAddOpen(false); // close popup on success
-      showToast("success", "Task added successfully");
-      await fetchTasks();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to create task";
-      setErr(msg);
-      showToast("error", msg);
-    }
+  showToast("success", "Task added successfully");
+  await fetchTasks();
+} catch (e: unknown) {
+  const msg =
+    e instanceof ApiError ? `${e.message} | ${e.bodyText}` : e instanceof Error ? e.message : "Failed to create task";
+  setErr(msg);
+  showToast("error", msg);
+}
+
   };
 
   const onDraftChange = (id: string, field: "priority" | "status", value: string) => {
@@ -111,37 +101,45 @@ export default function TasksPage() {
     }));
   };
 
+  // ✅ DEBUG PATCH SNIPPET ADDED HERE
   const saveTask = async (id: string) => {
     const current = tasks.find((t) => t.id === id);
     const draft = drafts[id];
-    if (!current || !draft) return;
+
+    console.log("[SAVE] id:", id);
+    console.log("[SAVE] current:", current);
+    console.log("[SAVE] draft:", draft);
+
+    if (!current || !draft) {
+      console.warn("[SAVE] Missing current or draft for id:", id);
+      return;
+    }
 
     const updates: Partial<Pick<Task, "priority" | "status">> = {};
     if (draft.priority !== current.priority) updates.priority = draft.priority;
     if (draft.status !== current.status) updates.status = draft.status;
+
+    console.log("[SAVE] updates:", updates);
 
     if (Object.keys(updates).length === 0) {
       showToast("info", "No changes to save");
       return;
     }
 
-    try {
-      setErr("");
-      const res = await fetch(`${API}/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
+   try {
+  setErr("");
+  const updated = await TasksAPI.update(id, updates);
 
-      if (!res.ok) throw new Error(`PATCH failed: HTTP ${res.status}`);
+  console.log("[SAVE] updated:", updated); // debug
+  showToast("success", "Task updated successfully");
+  await fetchTasks();
+} catch (e: unknown) {
+  const msg =
+    e instanceof ApiError ? `${e.message} | ${e.bodyText}` : e instanceof Error ? e.message : "Failed to update task";
+  setErr(msg);
+  showToast("error", msg);
+}
 
-      showToast("success", "Task updated successfully");
-      await fetchTasks();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to update task";
-      setErr(msg);
-      showToast("error", msg);
-    }
   };
 
   const resetRow = (id: string) => {
@@ -173,20 +171,21 @@ export default function TasksPage() {
   const confirmDelete = async () => {
     if (!pendingDeleteId) return;
 
-    try {
-      setErr("");
-      const res = await fetch(`${API}/${pendingDeleteId}`, { method: "DELETE" });
-      if (!res.ok) throw new Error(`DELETE failed: HTTP ${res.status}`);
+   try {
+  setErr("");
+  await TasksAPI.remove(pendingDeleteId);
 
-      showToast("success", "Task deleted successfully");
-      setConfirmOpen(false);
-      setPendingDeleteId(null);
-      await fetchTasks();
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to delete task";
-      setErr(msg);
-      showToast("error", msg);
-    }
+  showToast("success", "Task deleted successfully");
+  setConfirmOpen(false);
+  setPendingDeleteId(null);
+  await fetchTasks();
+} catch (e: unknown) {
+  const msg =
+    e instanceof ApiError ? `${e.message} | ${e.bodyText}` : e instanceof Error ? e.message : "Failed to delete task";
+  setErr(msg);
+  showToast("error", msg);
+}
+
   };
 
   const priorities = useMemo(() => {
@@ -363,7 +362,7 @@ export default function TasksPage() {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">Tasks</h1>
-            <p className="text-sm text-zinc-600">Title is read-only. Update priority/status and Save.</p>
+            <p className="text-sm text-zinc-600">Update priority/status and Save.</p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -375,8 +374,6 @@ export default function TasksPage() {
               <Plus size={18} />
               Add Task
             </button>
-
-           
           </div>
         </div>
 
@@ -444,14 +441,15 @@ export default function TasksPage() {
         {/* List */}
         {!loading && (
           <div className="mt-4">
-             <div className="flex mb-5">
- <div className="ml-auto inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-sm shadow-sm ring-1 ring-zinc-200">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span className="text-zinc-700">
-                Showing <b>{filteredTasks.length}</b> of <b>{tasks.length}</b>
-              </span>
+            <div className="mb-5 flex">
+              <div className="ml-auto inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-sm shadow-sm ring-1 ring-zinc-200">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="text-zinc-700">
+                  Showing <b>{filteredTasks.length}</b> of <b>{tasks.length}</b>
+                </span>
+              </div>
             </div>
-             </div>
+
             {/* Mobile cards */}
             <div className="grid grid-cols-1 gap-3 lg:hidden">
               {filteredTasks.map((t) => {
@@ -461,10 +459,7 @@ export default function TasksPage() {
                 return (
                   <div key={t.id} className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-zinc-200">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs text-zinc-500">ID</p>
-                        <p className="font-mono text-sm text-zinc-900">{t.id}</p>
-                      </div>
+                      <div className="text-sm font-semibold text-zinc-900">Task</div>
 
                       <button
                         onClick={() => requestDelete(t.id)}
@@ -544,8 +539,7 @@ export default function TasksPage() {
                 <table className="w-full min-w-[900px] border-collapse">
                   <thead className="bg-zinc-50">
                     <tr className="text-left text-xs font-semibold uppercase tracking-wider text-zinc-600">
-                      <th className="px-4 py-3">ID</th>
-                      <th className="px-4 py-3">Title </th>
+                      <th className="px-4 py-3">Title</th>
                       <th className="px-4 py-3">Priority</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Actions</th>
@@ -559,7 +553,6 @@ export default function TasksPage() {
 
                       return (
                         <tr key={t.id} className="text-sm">
-                          <td className="px-4 py-3 font-mono text-zinc-700">{t.id}</td>
                           <td className="px-4 py-3 font-semibold text-zinc-900">{t.title}</td>
 
                           <td className="px-4 py-3">
@@ -628,14 +621,13 @@ export default function TasksPage() {
                 </table>
               </div>
             </div>
-           
-            {!loading && filteredTasks.length === 0 && (
+
+            {filteredTasks.length === 0 && (
               <div className="mt-4 rounded-2xl bg-white p-6 text-sm text-zinc-700 shadow-sm ring-1 ring-zinc-200">
                 No tasks found for current filters.
               </div>
             )}
           </div>
-          
         )}
       </div>
     </div>
